@@ -6,7 +6,6 @@ from dato_sync.datocms_api import fetch_datocms_content
 from dato_sync.sync_options import SyncOptions
 from dato_sync.util import to_camel_case
 from search.config import DatoModel
-from services.models import Scoring
 
 
 class Fetcher:
