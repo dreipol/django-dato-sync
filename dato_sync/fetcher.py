@@ -1,12 +1,17 @@
 from typing import Type
 
 from django.conf import settings
+from django.db.models import Max
 
 from dato_sync.datocms_api import fetch_datocms_content
 from dato_sync.sync_options import SyncOptions
-from dato_sync.util import to_camel_case
+from dato_sync.util import to_camel_case, from_dato_path
 from search.config import DatoModel
 
+_META_MAPPINGS = [
+    "created" |from_dato_path("_createdAt"),
+    "modified" |from_dato_path("_updatedAt"),
+]
 
 class Fetcher:
     def __init__(self):
@@ -27,7 +32,7 @@ class Fetcher:
 
             sanitized_mappings = [
                 mapping if isinstance(mapping, tuple) else (mapping, False, mapping)
-                for mapping in job.field_mappings]
+                for mapping in job.field_mappings] + _META_MAPPINGS
 
             all_fields: list[str] = []
             localized_fields: list[str] = []
@@ -39,8 +44,13 @@ class Fetcher:
                 if mapping[1]:
                     localized_fields.append(mapping[2])
 
-            base_query = self._generate_query(job, all_fields)
-            localization_query = self._generate_query(job, localized_fields)
+            if force_full_sync:
+                min_date = None
+            else:
+                min_date = job.django_model.objects.aggregate(max_date=Max("modified"))["max_date"]
+
+            base_query = self._generate_query(job, all_fields, min_date)
+            localization_query = self._generate_query(job, localized_fields, min_date)
 
             response = fetch_datocms_content(default_locale, base_query)
             localization_responses = {language: fetch_datocms_content(language, localization_query)
@@ -61,13 +71,15 @@ class Fetcher:
                 django_object.save()
 
 
-    def _generate_query(self, job: SyncOptions, fields: list[str]):
+    def _generate_query(self, job: SyncOptions, fields: list[str], min_date):
         api_name = to_camel_case(job.dato_model_path)  # TODO: split
         all_name = f"all{api_name.capitalize()}s"
 
+        filter = f""", filter: {{_updatedAt: {{gt: "{min_date}"}} }}""" if min_date else ""
+
         return f"""
            query {job.__name__}Fetch($locale: SiteLocale!) {{
-               {all_name}(locale: $locale) {{
+               {all_name}(locale: $locale{filter}) {{
                    id
                    {"\n".join(fields)}                        
                }}
