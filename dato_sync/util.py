@@ -3,6 +3,8 @@ from typing import TypeVar, Callable, Generic
 T = TypeVar('T')
 R = TypeVar('R')
 
+_order_tag = '#order#'
+
 
 class Suffix(Generic[T, R]):
     def __init__(self, function: Callable[[T], R]):
@@ -12,5 +14,8 @@ class Suffix(Generic[T, R]):
         return self.function(other)
 
 
-def from_dato_path(path: str) -> Suffix[str, tuple[str, str]]:
-    return Suffix(lambda field: (field, path))
+def from_dato_path(path: str | None = None, localized: bool = False) -> Suffix[str, tuple[str, bool, str]]:
+    return Suffix(lambda field: (field, localized, path))
+
+position_in_parent = Suffix(lambda field: (field, False, _order_tag))
+
