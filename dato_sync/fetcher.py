@@ -52,8 +52,8 @@ class Fetcher:
             else:
                 min_date = job.django_model.objects.aggregate(max_date=Max("modified"))["max_date"]
 
-            base_query = self._generate_query(job, all_fields, min_date)
-            localization_query = self._generate_query(job, localized_fields, min_date)
+            base_query = self._generate_query(job, all_fields, all_name, min_date, fetch_all_ids=True)
+            localization_query = self._generate_query(job, localized_fields, all_name, min_date)
 
             response = fetch_datocms_content(default_locale, base_query)
             localization_responses = {language: fetch_datocms_content(language, localization_query)
@@ -80,21 +80,20 @@ class Fetcher:
                  .exclude(dato_identifier__in=[entry["id"] for entry in all_ids])
                  .update(deleted=True))
 
-        api_name = to_camel_case(job.dato_model_path)  # TODO: split
-        all_name = f"all{api_name.capitalize()}s"
 
-        filter = f""", filter: {{_updatedAt: {{gt: "{min_date}"}} }}""" if min_date else ""
     @staticmethod
     def _generate_query(
             job: SyncOptions,
             fields: list[str],
+            all_name: str,
             min_date: datetime.datetime,
             fetch_all_ids: bool = False
     ):
+        filter_expression = f""", filter: {{_updatedAt: {{gt: "{min_date}"}} }}""" if min_date else ""
 
         return f"""
            query {job.__name__}Fetch($locale: SiteLocale!) {{
-               {all_name}(locale: $locale{filter}) {{
+               {all_name}(locale: $locale{filter_expression}) {{
                    id
                    {"\n".join(fields)}                        
                }}

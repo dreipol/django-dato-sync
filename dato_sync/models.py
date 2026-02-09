@@ -31,8 +31,6 @@ def handle_dato_sync_registrations():
         Also import explicit modules.
         """
     import copy
-    import os
-    import sys
     from importlib import import_module
 
     from django.apps import apps
@@ -59,6 +57,3 @@ def handle_dato_sync_registrations():
             # attempting to import it, otherwise we want it to bubble up.
             if module_has_submodule(mod, "dato_sync"):
                 raise
-
-    # for module in TRANSLATION_FILES:
-    #     import_module(module)
