@@ -18,6 +18,8 @@ class DatoModel(models.Model):
         db_index=True,
     )
 
+    deleted = models.BooleanField(default=False)
+
     class Meta:
         abstract = True
 
