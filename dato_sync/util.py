@@ -1,9 +1,12 @@
 from typing import TypeVar, Callable, Generic
 
+from dato_sync.sync_options import DatoFieldPath
+
 T = TypeVar('T')
 R = TypeVar('R')
 
 _order_tag = '#order#'
+_flattened_order_tag = '#flattened_order#'
 
 
 class Suffix(Generic[T, R]):
@@ -14,16 +17,14 @@ class Suffix(Generic[T, R]):
         return self.function(other)
 
 
-def from_dato_path(path: str | None = None, localized: bool = False) -> Suffix[str, tuple[str, bool, str]]:
-    return Suffix(lambda field: (field, localized, path or field))
+def from_dato_path(path: str | None = None, localized: bool = False, absolute: bool = False) -> Suffix[str, DatoFieldPath]:
+    return Suffix(lambda field: DatoFieldPath(field, path, localized, absolute))
 
-position_in_parent = Suffix(lambda field: (field, False, _order_tag))
+position_in_parent = Suffix(lambda field: DatoFieldPath(django_field_name=field, path=_order_tag))
+flattened_position = Suffix(lambda field: DatoFieldPath(django_field_name=field, path=_flattened_order_tag))
 
 def to_camel_case(snake_str):
-    return "".join(x.capitalize() for x in snake_str.lower().split("_"))
-
-def to_lower_camel_case(snake_str):
-    # We capitalize the first letter of each component except the first one
-    # with the 'capitalize' method and join them together.
-    camel_string = to_camel_case(snake_str)
+    if snake_str.startswith('_'):
+        return snake_str
+    camel_string = "".join(x[0].upper() + x[1:] for x in snake_str.split("_"))
     return snake_str[0].lower() + camel_string[1:]

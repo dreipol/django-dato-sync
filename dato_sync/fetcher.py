@@ -5,16 +5,10 @@ from django.conf import settings
 from django.db.models import Max
 
 from dato_sync.datocms_api import fetch_datocms_content
-from dato_sync.sync_options import SyncOptions
-from dato_sync.util import to_camel_case, from_dato_path
+from dato_sync.query_tree import QueryTree
+from dato_sync.sync_options import SyncOptions, DatoFieldPath
 from search.config import DatoModel
 
-_META_MAPPINGS = [
-    "created" |from_dato_path("_createdAt"),
-    "modified" |from_dato_path("_updatedAt"),
-]
-
-_IDS_ALIAS = "allIds"
 
 class Fetcher:
     def __init__(self):
@@ -30,55 +24,50 @@ class Fetcher:
         default_locale = settings.LANGUAGE_CODE
 
         for job in self.jobs:
-            api_name = to_camel_case(job.dato_model_path) # TODO: split
-            all_name = f"all{api_name.capitalize()}s"
-
             sanitized_mappings = [
-                mapping if isinstance(mapping, tuple) else (mapping, False, mapping)
-                for mapping in job.field_mappings] + _META_MAPPINGS
-
-            all_fields: list[str] = []
-            localized_fields: list[str] = []
-            for mapping in sanitized_mappings:
-                if mapping[2] == _order_tag:
-                    continue
-
-                all_fields.append(mapping[2])
-                if mapping[1]:
-                    localized_fields.append(mapping[2])
+                mapping if isinstance(mapping, DatoFieldPath) else DatoFieldPath(mapping)
+                for mapping in job.field_mappings]
 
             if force_full_sync:
                 min_date = None
             else:
                 min_date = job.django_model.objects.aggregate(max_date=Max("modified"))["max_date"]
 
-            base_query = self._generate_query(job, all_fields, all_name, min_date, fetch_all_ids=True)
-            localization_query = self._generate_query(job, localized_fields, all_name, min_date)
+            query_tree = QueryTree(
+                job=job,
+                min_date=min_date,
+            )
+
+            for mapping in sanitized_mappings:
+                query_tree.insert_mapping(mapping, job)
+
+            base_query = query_tree.construct_query(localized=False)
+            localization_query = query_tree.construct_query(localized=True)
 
             response = fetch_datocms_content(default_locale, base_query)
             localization_responses = {language: fetch_datocms_content(language, localization_query)
              for language, _ in settings.LANGUAGES
              if language != default_locale}
 
-            for record_index, dato_record in enumerate(response.get(all_name, [])):
-                django_object, _ = job.django_model.objects.get_or_create(dato_identifier=dato_record["id"])
-                django_object.deleted = False
-                for django_field, isLocalized, dato_field in sanitized_mappings:
-                    setattr(django_object, django_field, record_index if dato_field == _order_tag else dato_record[dato_field])
-
-                    if isLocalized:
-                        setattr(django_object, f"{django_field}_{default_locale}", dato_record[dato_field])
-                        for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
-                            localized_record = localization_responses[language].get(all_name, [])[record_index]
-                            setattr(django_object, f"{django_field}_{language}", localized_record[dato_field])
-
-                django_object.save()
-
-            all_ids = response.get(_IDS_ALIAS)
-            if all_ids:
-                (job.django_model.objects
-                 .exclude(dato_identifier__in=[entry["id"] for entry in all_ids])
-                 .update(deleted=True))
+            # for record_index, dato_record in enumerate(response.get(all_name, [])):
+            #     django_object, _ = job.django_model.objects.get_or_create(dato_identifier=dato_record["id"])
+            #     django_object.deleted = False
+            #     for django_field, isLocalized, dato_field in sanitized_mappings:
+            #         setattr(django_object, django_field, record_index if dato_field == _order_tag else dato_record[dato_field])
+            #
+            #         if isLocalized:
+            #             setattr(django_object, f"{django_field}_{default_locale}", dato_record[dato_field])
+            #             for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
+            #                 localized_record = localization_responses[language].get(all_name, [])[record_index]
+            #                 setattr(django_object, f"{django_field}_{language}", localized_record[dato_field])
+            #
+            #     django_object.save()
+            #
+            # all_ids = response.get(_IDS_ALIAS)
+            # if all_ids:
+            #     (job.django_model.objects
+            #      .exclude(dato_identifier__in=[entry["id"] for entry in all_ids])
+            #      .update(deleted=True))
 
 
     @staticmethod
@@ -89,7 +78,6 @@ class Fetcher:
             min_date: datetime.datetime,
             fetch_all_ids: bool = False
     ):
-        filter_expression = f""", filter: {{_updatedAt: {{gt: "{min_date}"}} }}""" if min_date else ""
 
         return f"""
            query {job.__name__}Fetch($locale: SiteLocale!) {{
