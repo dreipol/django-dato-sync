@@ -39,12 +39,15 @@ class Fetcher:
                 query_tree.insert_mapping(mapping, job)
 
             base_query = QueryGenerator(for_localization=False).generate_query(query_tree)
-            localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
 
             response = fetch_datocms_content(default_locale, base_query)
-            localization_responses = {language: fetch_datocms_content(language, localization_query)
-             for language, _ in settings.LANGUAGES
-             if language != default_locale}
+            if any(mapping.is_localized for mapping in sanitized_mappings):
+                localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
+                localization_responses = {language: fetch_datocms_content(language, localization_query)
+                 for language, _ in settings.LANGUAGES
+                 if language != default_locale}
+            else:
+                localization_responses = {}
 
             # for record_index, dato_record in enumerate(response.get(all_name, [])):
             #     django_object, _ = job.django_model.objects.get_or_create(dato_identifier=dato_record["id"])
