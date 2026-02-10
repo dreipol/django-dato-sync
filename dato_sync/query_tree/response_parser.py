@@ -21,11 +21,13 @@ class ParserContext:
             localization_responses: dict[str, dict],
             context: dict[str, Any] | None = None,
             active_object: DatoModel | None = None,
+            position_in_parent: int = 0,
     ) -> None:
         self.context = context or dict()
         self.active_object= active_object
         self.response: dict | Any = response
         self.localization_responses: dict[str, dict | Any] = localization_responses
+        self.position_in_parent = position_in_parent
 
     def visit(self, api_name: str) -> list["ParserContext"]:
         sub_response = self.response.get(api_name)
@@ -44,17 +46,19 @@ class ParserContext:
                 response=response,
                 localization_responses=localized_response,
                 context=self.context.copy(),
-                active_object=self.active_object
+                active_object=self.active_object,
+                position_in_parent=position
             )
-             for response, localized_response in zip(sub_response, per_object_localized_sub_responses)]
+             for position, (response, localized_response) in enumerate(zip(sub_response, per_object_localized_sub_responses))]
         else:
             return [ParserContext(
-                    response=response,
-                    localization_responses={},
-                    context=self.context.copy(),
-                    active_object=self.active_object,
-                )
-                for response in sub_response]
+                response=response,
+                localization_responses={},
+                context=self.context.copy(),
+                active_object=self.active_object,
+                position_in_parent=position,
+            )
+                for position, response in enumerate(sub_response)]
 
 
 class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
@@ -123,10 +127,16 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
 
     def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]) -> list[str]:
-        pass
+        for context in user_info:
+            setattr(context.active_object, leaf.django_field_name, context.position_in_parent)
+
+        return [leaf.django_field_name]
 
     def visit_flattened_position(self, leaf: FlattenedPosition, user_info: list[ParserContext]) -> list[str]:
-        pass
+        for position, context in enumerate(user_info):
+            setattr(context.active_object, leaf.django_field_name, position)
+
+        return [leaf.django_field_name]
 
     @staticmethod
     def _visit_contexts(contexts: list[ParserContext], api_name: str) -> list[ParserContext]:
