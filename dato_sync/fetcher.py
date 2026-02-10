@@ -1,11 +1,10 @@
-import datetime
 from typing import Type
 
 from django.conf import settings
 from django.db.models import Max
 
 from dato_sync.datocms_api import fetch_datocms_content
-from dato_sync.query_tree import QueryTree
+from dato_sync.query_tree import QueryTree, QueryGenerator
 from dato_sync.sync_options import SyncOptions, DatoFieldPath
 from search.config import DatoModel
 
@@ -19,8 +18,6 @@ class Fetcher:
         self.jobs.append(options)
 
     def fetch(self, force_full_sync: bool):
-        from dato_sync.util import _order_tag
-
         default_locale = settings.LANGUAGE_CODE
 
         for job in self.jobs:
@@ -41,8 +38,8 @@ class Fetcher:
             for mapping in sanitized_mappings:
                 query_tree.insert_mapping(mapping, job)
 
-            base_query = query_tree.construct_query(localized=False)
-            localization_query = query_tree.construct_query(localized=True)
+            base_query = QueryGenerator(for_localization=False).generate_query(query_tree)
+            localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
 
             response = fetch_datocms_content(default_locale, base_query)
             localization_responses = {language: fetch_datocms_content(language, localization_query)
@@ -68,29 +65,5 @@ class Fetcher:
             #     (job.django_model.objects
             #      .exclude(dato_identifier__in=[entry["id"] for entry in all_ids])
             #      .update(deleted=True))
-
-
-    @staticmethod
-    def _generate_query(
-            job: SyncOptions,
-            fields: list[str],
-            all_name: str,
-            min_date: datetime.datetime,
-            fetch_all_ids: bool = False
-    ):
-
-        return f"""
-           query {job.__name__}Fetch($locale: SiteLocale!) {{
-               {all_name}(locale: $locale{filter_expression}) {{
-                   id
-                   {"\n".join(fields)}                        
-               }}
-               {"" if not fetch_all_ids else f"""
-               {_IDS_ALIAS}: {all_name} {{
-                id
-               }}               
-               """}
-           }}
-       """
 
 fetcher = Fetcher()

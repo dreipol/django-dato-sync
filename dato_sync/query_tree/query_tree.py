@@ -1,4 +1,6 @@
 import datetime
+from abc import ABC, abstractmethod
+from typing import TypeVar, Generic
 
 from dato_sync.errors import IllegalSyncOptionsError
 from dato_sync.sync_options import SyncOptions, DatoFieldPath
@@ -8,7 +10,6 @@ from dato_sync.util import (
     to_camel_case,
     from_dato_path,
 )
-from search.api.views import query
 
 _DATO_ID_FIELD_NAME = "dato_identifier"
 _META_MAPPINGS = [
@@ -20,7 +21,31 @@ _META_MAPPINGS = [
     "modified" |from_dato_path("_updatedAt", absolute=True),
 ]
 
-_IDS_ALIAS = "allIds"
+
+UserInfo = TypeVar("UserInfo")
+ReturnType = TypeVar("ReturnType")
+
+
+class QueryTreeVisitor(Generic[UserInfo, ReturnType], ABC):
+    @abstractmethod
+    def visit_root(self, root: "QueryTree", user_info: UserInfo) -> ReturnType:
+        pass
+
+    @abstractmethod
+    def visit_intermediate_node(self, intermediate_node: "QueryTreeNode", user_info: UserInfo) -> ReturnType:
+        pass
+
+    @abstractmethod
+    def visit_leaf(self, leaf: "QueryTreeNode", user_info: UserInfo) -> ReturnType:
+        pass
+
+    @abstractmethod
+    def visit_position_in_parent(self, leaf: "PositionInParent", user_info: UserInfo) -> ReturnType:
+        pass
+
+    @abstractmethod
+    def visit_flattened_position(self, leaf: "FlattenedPosition", user_info: UserInfo) -> ReturnType:
+        pass
 
 
 class QueryTreeNode:
@@ -65,18 +90,11 @@ class QueryTreeNode:
         self.django_field_name = django_field_name
         self.is_localized = is_localized
 
-    def construct_query(self, localized: bool) -> str | None:
-        if localized and not self.is_localized:
-            return None
-        elif self.children:
-            subqueries = [child.construct_query(localized) for child in self.children]
-            child_query = "\n".join([subquery for subquery in subqueries if subquery])
-            return f"""{to_camel_case(self.api_name)} {{
-            {child_query}
-            }}"""
+    def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
+        if self.children:
+            return visitor.visit_intermediate_node(self, user_info)
         else:
-            return self.api_name
-
+            return visitor.visit_leaf(self, user_info)
 
 
 class QueryTree(QueryTreeNode):
@@ -86,8 +104,9 @@ class QueryTree(QueryTreeNode):
             min_date: datetime.datetime | None,
     ):
         super().__init__(job.dato_model_path)
+        self.min_date = min_date
+
         self.all_name = f"all{self.api_name[0].upper() + self.api_name[1:]}s"
-        self.filter_expression = f""", filter: {{_updatedAt: {{gt: "{min_date}"}} }}""" if min_date else ""
         self.query_name = f"{job.__name__}Fetch"
         _, _, self.relative_path = job.dato_model_path.partition(".")
         for mapping in _META_MAPPINGS:
@@ -117,33 +136,21 @@ class QueryTree(QueryTreeNode):
             is_localized=mapping.is_localized,
         )
 
-    def construct_query(self, localized: bool) -> str | None:
-        subqueries = [child.construct_query(localized) for child in self.children]
-        child_query = "\n".join([subquery for subquery in subqueries if subquery])
-
-        return f"""
-           query {self.query_name}($locale: SiteLocale!) {{
-               {self.all_name}(locale: $locale{self.filter_expression}) {{
-                   {child_query}
-               }}
-               {"" if localized else f"""
-               {_IDS_ALIAS}: {self.ids_tree.construct_query(localized=False)}   
-               """}
-           }}
-       """
+    def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
+        return visitor.visit_root(self, user_info)
 
 
 class PositionInParent(QueryTreeNode):
     def __init__(self, django_field_name: str):
         self.django_field_name = django_field_name
 
-    def construct_query(self, localized: bool) -> str | None:
-        return None
+    def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
+        return visitor.visit_position_in_parent(self, user_info)
 
 
 class FlattenedPosition(QueryTreeNode):
     def __init__(self, django_field_name: str):
         self.django_field_name = django_field_name
 
-    def construct_query(self, localized: bool) -> str | None:
-        return None
+    def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
+        return visitor.visit_flattened_position(self, user_info)
