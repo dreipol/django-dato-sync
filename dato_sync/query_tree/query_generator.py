@@ -24,7 +24,7 @@ class QueryGenerator(QueryTreeVisitor[None, str | None]):
 
         return f"""
            query {root.query_name}($locale: SiteLocale!) {{
-               {root.all_name}(locale: $locale{filter_expression}) {{
+               {root.api_name}(locale: $locale{filter_expression}) {{
                    {child_query}
                }}
                {"" if self.for_localization else f"""

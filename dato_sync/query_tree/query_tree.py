@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import TypeVar, Generic
 
 from dato_sync.errors import IllegalSyncOptionsError
+from dato_sync.query_tree.constants import DATO_ID_FIELD_NAME
 from dato_sync.sync_options import SyncOptions, DatoFieldPath
 from dato_sync.util import (
     _order_tag,
@@ -11,9 +12,9 @@ from dato_sync.util import (
     from_dato_path,
 )
 
-_DATO_ID_FIELD_NAME = "dato_identifier"
+# ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
 _META_MAPPINGS = [
-    _DATO_ID_FIELD_NAME |from_dato_path("id", localized=True),
+    DATO_ID_FIELD_NAME |from_dato_path("id", localized=True),
     "created" |from_dato_path("_createdAt"),
 
     # When a block in the parent changes its modified date also changes. The inverse is not true. Additionally, the child may refer to the
@@ -106,22 +107,27 @@ class QueryTree(QueryTreeNode):
         super().__init__(job.dato_model_path)
         self.min_date = min_date
 
-        self.all_name = f"all{self.api_name[0].upper() + self.api_name[1:]}s"
+        self.api_name = f"all{self.api_name[0].upper() + self.api_name[1:]}s"
         self.query_name = f"{job.__name__}Fetch"
         _, _, self.relative_path = job.dato_model_path.partition(".")
+        # ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
         for mapping in _META_MAPPINGS:
             self.insert_mapping(mapping, job)
 
-        ids_path_components = [self.all_name, self.relative_path, "id"]
+        ids_path_components = [self.api_name, self.relative_path, "id"]
         self.ids_tree = QueryTreeNode(
             path=".".join([component for component in ids_path_components if component]),
             job=job,
-            django_field_name=_DATO_ID_FIELD_NAME,
+            django_field_name=DATO_ID_FIELD_NAME,
             is_localized=False,
         )
 
     def insert(self, sub_path, job: SyncOptions, django_field_name: str, is_localized: bool):
-        super().insert(sub_path, job, django_field_name, is_localized)
+        _, _, dato_field_name = sub_path.rpartition(".")
+        if dato_field_name == _order_tag or dato_field_name == _flattened_order_tag:
+            self.ids_tree.insert(sub_path, job, django_field_name, is_localized)
+        else:
+            super().insert(sub_path, job, django_field_name, is_localized)
 
     def insert_mapping(self, mapping: DatoFieldPath, job: SyncOptions):
         path = (
