@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 
 from dato_sync.models import DatoModel
 from dato_sync.query_tree.constants import DATO_ID_FIELD_NAME, IDS_ALIAS
@@ -147,6 +148,11 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
     @staticmethod
     def _set_value_or_context(context: ParserContext, key: str, value: Any):
         if context.active_object:
-            setattr(context.active_object, key, value)
+            if isinstance(context.active_object._meta.get_field(key), ArrayField):
+                if context.position_in_parent == 0:
+                    setattr(context.active_object, key, [])
+                getattr(context.active_object, key).append(value)
+            else:
+                setattr(context.active_object, key, value)
         else:
             context.context[key] = value
