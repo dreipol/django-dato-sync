@@ -13,14 +13,15 @@ from dato_sync.util import (
 )
 
 # ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
-_META_MAPPINGS = [
-    DATO_ID_FIELD_NAME |from_dato_path("id", localized=True),
-    "created" |from_dato_path("_createdAt"),
+def _meta_mappings(base_name) -> list[DatoFieldPath]:
+    return [
+        DATO_ID_FIELD_NAME |from_dato_path("id", localized=True),
+        "created" |from_dato_path("_createdAt"),
 
-    # When a block in the parent changes its modified date also changes. The inverse is not true. Additionally, the child may refer to the
-    # parent's fields so using the parents modification date (by setting absolute=True) ensures the delta sync works correctly.
-    "modified" |from_dato_path("_updatedAt", absolute=True),
-]
+        # When a block in the parent changes its modified date also changes. The inverse is not true. Additionally, the child may refer to the
+        # parent's fields so using the parents modification date (by setting absolute=True) ensures the delta sync works correctly.
+        "modified" |from_dato_path(f"{base_name}._updatedAt", absolute=True),
+    ]
 
 
 UserInfo = TypeVar("UserInfo")
@@ -106,12 +107,13 @@ class QueryTree(QueryTreeNode):
     ):
         super().__init__(job.dato_model_path)
         self.min_date = min_date
+        base_name = self.api_name
 
-        self.api_name = f"all{self.api_name[0].upper() + self.api_name[1:]}s"
+        self.api_name = f"all{base_name[0].upper() + base_name[1:]}s"
         self.query_name = f"{job.__name__}Fetch"
         _, _, self.relative_path = job.dato_model_path.partition(".")
         # ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
-        for mapping in _META_MAPPINGS:
+        for mapping in _meta_mappings(base_name):
             self.insert_mapping(mapping, job)
 
         ids_path_components = [self.api_name, self.relative_path, "id"]
@@ -130,13 +132,17 @@ class QueryTree(QueryTreeNode):
             super().insert(sub_path, job, django_field_name, is_localized)
 
     def insert_mapping(self, mapping: DatoFieldPath, job: SyncOptions):
-        path = (
-            mapping.path
-            if mapping.is_absolute or not self.relative_path
-            else f"{self.relative_path}.{mapping.path}"
-        )
+        if mapping.is_absolute or not self.relative_path:
+            root, _, subpath = mapping.path.partition(".")
+            root_name = f"all{root[0].upper() + root[1:]}s"
+            if self.api_name != root_name:
+                raise IllegalSyncOptionsError(job.django_model.__name__, job.__name__, "All mappings must access the same dato model!")
+
+        else:
+            subpath = f"{self.relative_path}.{mapping.path}"
+
         self.insert(
-            sub_path=path,
+            sub_path=subpath,
             job=job,
             django_field_name=mapping.django_field_name,
             is_localized=mapping.is_localized,
