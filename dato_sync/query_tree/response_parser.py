@@ -13,17 +13,22 @@ from dato_sync.query_tree.query_tree import (
     QueryTree,
 )
 from dato_sync.sync_options import SyncOptions
+from dato_sync.util import to_camel_case, all_dato_objects_name
 
 
 class ParserContext:
     def __init__(
-            self,
-            response: dict,
-            localization_responses: dict[str, dict],
-            context: dict[str, Any] | None = None,
-            active_object: DatoModel | None = None,
-            position_in_parent: int = 0,
+        self,
+        response: dict,
+        localization_responses: dict[str, dict],
+        model_path: str,
+        path: str = "",
+        context: dict[str, Any] | None = None,
+        active_object: DatoModel | None = None,
+        position_in_parent: int = 0,
     ) -> None:
+        self.path = path
+        self.model_path = model_path
         self.context = context or dict()
         self.active_object= active_object
         self.response: dict | Any = response
@@ -42,34 +47,87 @@ class ParserContext:
         per_object_localized_sub_responses = [dict(zip(localized_sub_responses, object_info))
                                               for object_info in zip(*localized_sub_responses.values())]
 
+        subpath = api_name if not self.path else f"{self.path}.{api_name}"
+
         if per_object_localized_sub_responses:
-            return [ParserContext(
-                response=response,
-                localization_responses=localized_response,
-                context=self.context.copy(),
-                active_object=self.active_object,
-                position_in_parent=position
-            )
-             for position, (response, localized_response) in enumerate(zip(sub_response, per_object_localized_sub_responses))]
+            return [
+                ParserContext(
+                    response=response,
+                    localization_responses=localized_response,
+                    context=self.context.copy()
+                    if self._needs_context_split(subpath)
+                    else self.context,
+                    model_path=self.model_path,
+                    path=subpath,
+                    active_object=self.active_object,
+                    position_in_parent=position,
+                )
+                for position, (response, localized_response) in enumerate(
+                    zip(sub_response, per_object_localized_sub_responses)
+                )
+            ]
         else:
-            return [ParserContext(
-                response=response,
-                localization_responses={},
-                context=self.context.copy(),
-                active_object=self.active_object,
-                position_in_parent=position,
-            )
-                for position, response in enumerate(sub_response)]
+            return [
+                ParserContext(
+                    response=response,
+                    localization_responses={},
+                    context=self.context.copy()
+                    if self._needs_context_split(subpath)
+                    else self.context,
+                    model_path=self.model_path,
+                    path=subpath,
+                    active_object=self.active_object,
+                    position_in_parent=position,
+                )
+                for position, response in enumerate(sub_response)
+            ]
+
+    def _needs_context_split(self, subpath: str) -> bool:
+        # Consider the following GraphQL response:
+        #        ┌─────►b──────►c
+        # a──────┤
+        #        │             ┌──►e1────►id1
+        #        │             │
+        #        ├─────►d1─────┤
+        #        │             └──►f1
+        #        │
+        #        └─────►d2───┬────►f2
+        #                    │
+        #                    ├─────►e2───►id2
+        #                    │
+        #                    └─────►e3───►id3
+        #
+        # This should result in the following 3 objects (model_path="a.d.e"):
+        # id1, f1, c
+        # id2, f2, c
+        # id3, f2, c
+        #
+        # To achieve this we copy the context while going along the model_path (so changes from other branches don't affect us) and we
+        # allow aliasing along other paths (while making sure to visit those paths first below so the context contains all necessary
+        # information by the time we create an object).
+        return self.model_path.startswith(subpath)
 
 
 class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
     def __init__(self, job: SyncOptions):
         self.job = job
         self.objects: dict[str, DatoModel] = dict()
+        root, _, subpath = to_camel_case(self.job.dato_model_path).partition(".")
+        self.model_path = f"{all_dato_objects_name(root)}.{subpath}"
 
-    def parse_response(self, response: dict, localization_responses: dict[str, dict], query_tree: QueryTree) -> list[str]:
+    def parse_response(
+        self,
+        response: dict,
+        localization_responses: dict[str, dict],
+        query_tree: QueryTree,
+    ) -> list[str]:
         self.objects = dict()
-        context = ParserContext(response, localization_responses)
+
+        context = ParserContext(
+            response=response,
+            localization_responses=localization_responses,
+            model_path=self.model_path,
+        )
         fields = query_tree.visit(self, [context])
         self.job.django_model.objects.bulk_create(
             self.objects.values(),
@@ -98,8 +156,15 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
     def visit_intermediate_node(self, intermediate_node: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
         next_context = self._visit_contexts(user_info, intermediate_node.api_name)
+        # Ensure we collect the entire context before creating objects as described above.
+        collect_context_first = (
+            lambda c: 1
+            if self.model_path.startswith(f"{next_context[0].path}.{c.api_name}")
+            else 0
+        )
+
         return [field
-                for child in intermediate_node.children
+                for child in sorted(intermediate_node.children, key=collect_context_first)
                 for field in child.visit(self, next_context)]
 
     def visit_leaf(self, leaf: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:

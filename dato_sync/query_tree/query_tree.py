@@ -10,6 +10,7 @@ from dato_sync.util import (
     _flattened_order_tag,
     to_camel_case,
     from_dato_path,
+    all_dato_objects_name,
 )
 
 # ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
@@ -109,7 +110,7 @@ class QueryTree(QueryTreeNode):
         self.min_date = min_date
         base_name = self.api_name
 
-        self.api_name = f"all{base_name[0].upper() + base_name[1:]}s"
+        self.api_name = all_dato_objects_name(base_name)
         self.query_name = f"{job.__name__}Fetch"
         _, _, self.relative_path = job.dato_model_path.partition(".")
         # ⚠️ it's important that the id field always comes first, so the parser will create new objects before filling other fields
@@ -155,6 +156,7 @@ class QueryTree(QueryTreeNode):
 class PositionInParent(QueryTreeNode):
     def __init__(self, django_field_name: str):
         self.django_field_name = django_field_name
+        self.api_name = None
 
     def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
         return visitor.visit_position_in_parent(self, user_info)
@@ -163,6 +165,7 @@ class PositionInParent(QueryTreeNode):
 class FlattenedPosition(QueryTreeNode):
     def __init__(self, django_field_name: str):
         self.django_field_name = django_field_name
+        self.api_name = None
 
     def visit(self, visitor: QueryTreeVisitor[UserInfo, ReturnType], user_info: UserInfo) -> ReturnType:
         return visitor.visit_flattened_position(self, user_info)
