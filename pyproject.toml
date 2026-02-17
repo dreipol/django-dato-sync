@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-dato-sync"
+version = "0.0.2"
+authors = [
+  { name="Laila Becker", email="laila.becker@dreipol.ch" },
+]
+description = "A sync utility for storing DatoCMS objects in django."
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/dreipol/django-dato-sync"
+Issues = "https://github.com/dreipol/django-dato-sync/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dato_sync*"]
