@@ -39,10 +39,7 @@ urlpatterns = [
     path("", include("dato_sync.urls"))
 ]
 ```
-2. Setup the authentication header Dato will use in your `settings.py`
-```py
-DATO_SYNC_WEBHOOK_EXPECTED_AUTH: str = "Basic ..."
-```
+2. Use `python manage.py gen_auth_header` to generate the auth setup. Add `DATO_SYNC_WEBHOOK_EXPECTED_AUTH: str` to your `settings.py` and set up the username and password in Dato.
 3. In Dato navigate to Project Setting > Automations > Webhooks and click "Add a new webhook"
 4. Configure the webhook to trigger on "Publish", "Unpublish", and "Delete" for any records you want to sync to django
 5. Specify the URL as `https://<your-django-server-address>/dato-sync/sync/`
