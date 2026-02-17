@@ -89,7 +89,9 @@ field_mappings = [
 This allows you to
 
 - specify a different name / path to take the value from
-- `localized` allows you to fetch localizations from Dato and store them using django-modeltranslation
+- `localized` allows you to fetch localizations from Dato and store them either
+  - using [django-modeltranslation](https://github.com/deschler/django-modeltranslation)
+  - by manually defining fields with the `_<language_code>` suffix (e.g. `foo_de`, `foo_fr`) 
 - `absolute` allows you to access properties of the parent entities by specifying the field to take the value from starting from the top of the Dato query rather than the path specified in `dato_model_path`
 
 Additonally the following are also available:

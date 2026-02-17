@@ -114,12 +114,27 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
                     self.objects[value] = obj
 
                 for key, value in context.context.items():
-                    setattr(obj, key, value)
+                    try:
+                        setattr(obj, key, value)
+                    except AttributeError as e:
+                        if context.context.get(f"{key}_{default_locale}"):
+                            pass # Allow localization without a base field
+                        else:
+                            raise e
+
                 context.active_object = obj
 
-            self._set_value_or_context(context, leaf.django_field_name, value)
+            try:
+                self._set_value_or_context(context, leaf.django_field_name, value)
+            except AttributeError as e:
+                if leaf.is_localized:
+                    pass # Allow localization without a base field
+                else:
+                    raise e
+
             if leaf.is_localized and leaf.api_name != "id":
                 self._set_value_or_context(context, f"{leaf.django_field_name}_{default_locale}", value)
+
                 for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
                     localized_value = context.localization_responses[language].get(leaf.api_name)
                     self._set_value_or_context(context, f"{leaf.django_field_name}_{language}", localized_value)
