@@ -156,6 +156,9 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
     def visit_intermediate_node(self, intermediate_node: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
         next_context = self._visit_contexts(user_info, intermediate_node.api_name)
+        if not next_context:
+            return []
+
         # Ensure we collect the entire context before creating objects as described above.
         collect_context_first = (
             lambda c: 1
@@ -178,9 +181,9 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
                     obj = self.job.django_model()
                     self.objects[value] = obj
 
-                for key, value in context.context.items():
+                for key, context_value in context.context.items():
                     try:
-                        setattr(obj, key, value)
+                        setattr(obj, key, context_value)
                     except AttributeError as e:
                         if context.context.get(f"{key}_{default_locale}"):
                             pass # Allow localization without a base field

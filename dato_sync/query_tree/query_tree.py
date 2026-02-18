@@ -133,11 +133,14 @@ class QueryTree(QueryTreeNode):
             super().insert(sub_path, job, django_field_name, is_localized)
 
     def insert_mapping(self, mapping: DatoFieldPath, job: SyncOptions):
-        if mapping.is_absolute or not self.relative_path:
+        if mapping.is_absolute:
             root, _, subpath = mapping.path.partition(".")
             root_name = f"all{root[0].upper() + root[1:]}s"
             if self.api_name != root_name:
                 raise IllegalSyncOptionsError(job.django_model.__name__, job.__name__, "All mappings must access the same dato model!")
+
+        elif not self.relative_path:
+            subpath = mapping.path
 
         else:
             subpath = f"{self.relative_path}.{mapping.path}"
