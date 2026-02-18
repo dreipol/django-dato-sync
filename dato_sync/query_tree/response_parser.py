@@ -175,7 +175,7 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
         for context in user_info:
             value = context.response.get(leaf.api_name)
-            if leaf.api_name == "id":
+            if leaf.django_field_name == DATO_ID_FIELD_NAME:
                 obj = self.objects.get(value)
                 if obj is None:
                     obj = self.job.django_model()
@@ -200,14 +200,14 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
                 else:
                     raise e
 
-            if leaf.is_localized and leaf.api_name != "id":
+            if leaf.is_localized and leaf.django_field_name != DATO_ID_FIELD_NAME:
                 self._set_value_or_context(context, f"{leaf.django_field_name}_{default_locale}", value)
 
                 for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
                     localized_value = context.localization_responses[language].get(leaf.api_name)
                     self._set_value_or_context(context, f"{leaf.django_field_name}_{language}", localized_value)
 
-        return [] if leaf.api_name == "id" else [leaf.django_field_name]
+        return [] if leaf.django_field_name == DATO_ID_FIELD_NAME else [leaf.django_field_name]
 
 
     def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]) -> list[str]:
