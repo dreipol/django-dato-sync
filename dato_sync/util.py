@@ -28,3 +28,7 @@ def to_camel_case(snake_str):
         return snake_str
     camel_string = "".join(x[0].upper() + x[1:] for x in snake_str.split("_"))
     return snake_str[0].lower() + camel_string[1:]
+
+def all_dato_objects_name(api_name: str) -> str:
+    base_name = to_camel_case(api_name)
+    return f"all{base_name[0].upper() + base_name[1:]}s"

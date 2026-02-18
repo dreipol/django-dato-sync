@@ -4,9 +4,10 @@ from django.conf import settings
 from django.db.models import Max
 
 from dato_sync.datocms_api import fetch_datocms_content
+from dato_sync.errors import IllegalSyncOptionsError
+from dato_sync.models import DatoModel
 from dato_sync.query_tree import QueryTree, QueryGenerator, ResponseParser
 from dato_sync.sync_options import SyncOptions, DatoFieldPath
-from search.config import DatoModel
 
 
 class Fetcher:
@@ -15,6 +16,7 @@ class Fetcher:
 
     def register(self, model: Type[DatoModel], options: SyncOptions):
         options.django_model = model
+        _run_sanity_checks(options)
         self.jobs.append(options)
 
     def fetch(self, force_full_sync: bool):
@@ -62,3 +64,11 @@ class Fetcher:
              .update(deleted=True))
 
 fetcher = Fetcher()
+
+def _run_sanity_checks(options: SyncOptions):
+    reserved_names = [field.name for field in DatoModel._meta.fields]
+
+    for mapping in options.field_mappings:
+        field_name: str = mapping.django_field_name if isinstance(mapping, DatoFieldPath) else mapping
+        if field_name in reserved_names:
+            raise IllegalSyncOptionsError(options.django_model.__name__, options.__name__, f"{field_name} is reserved and should not be mapped manually. It will be populated automatically.")

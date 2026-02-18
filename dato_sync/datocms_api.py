@@ -3,6 +3,10 @@ import requests
 from requests.auth import AuthBase
 
 
+class DatoException(Exception):
+    pass
+
+
 class DatoTokenAuth(AuthBase):
     """Implements a token authentication scheme."""
 
@@ -30,6 +34,9 @@ def fetch_datocms_content(language: str, query: str) -> dict:
 
     if response.status_code == 200:
         data = response.json()
+        if data.get("errors"):
+            raise DatoException("\n" + "\n".join([f"- {error["message"]}" for error in data["errors"]]))
+
         return data.get("data")
     else:
         print(f"Error: {response.status_code} - {response.text}")
