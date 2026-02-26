@@ -39,13 +39,14 @@ class ParserContext:
         sub_response = self.response.get(api_name)
         if not isinstance(sub_response, list):
             sub_response = [sub_response]
+        sub_response = [r for r in sub_response if r]
 
         localized_sub_responses = {key: value.get(api_name) for key, value in self.localization_responses.items() if value}
         localized_sub_responses = {key: value if isinstance(value, list) else [value]
                                    for key, value in localized_sub_responses.items()
                                    if value}
         per_object_localized_sub_responses = [dict(zip(localized_sub_responses, object_info))
-                                              for object_info in zip(*localized_sub_responses.values())]
+                                              for object_info in zip(*localized_sub_responses.values()) if object_info]
 
         subpath = api_name if not self.path else f"{self.path}.{api_name}"
 
