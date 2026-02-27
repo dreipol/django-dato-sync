@@ -173,6 +173,7 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
     def visit_leaf(self, leaf: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
         default_locale = settings.LANGUAGE_CODE
+        fields = []
 
         for context in user_info:
             value = context.response.get(leaf.api_name)
@@ -193,8 +194,11 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
                 context.active_object = obj
 
+            fields = []
             try:
                 self._set_value_or_context(context, leaf.django_field_name, value)
+                if leaf.django_field_name != DATO_ID_FIELD_NAME:
+                    fields = [leaf.django_field_name]
             except AttributeError as e:
                 if leaf.is_localized:
                     pass # Allow localization without a base field
@@ -202,13 +206,17 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
                     raise e
 
             if leaf.is_localized and leaf.django_field_name != DATO_ID_FIELD_NAME:
-                self._set_value_or_context(context, f"{leaf.django_field_name}_{default_locale}", value)
+                field_name = f"{leaf.django_field_name}_{default_locale}"
+                self._set_value_or_context(context, field_name, value)
+                fields.append(field_name)
 
                 for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
                     localized_value = context.localization_responses[language].get(leaf.api_name)
-                    self._set_value_or_context(context, f"{leaf.django_field_name}_{language}", localized_value)
+                    field_name = f"{leaf.django_field_name}_{language}"
+                    self._set_value_or_context(context, field_name, localized_value)
+                    fields.append(field_name)
 
-        return [] if leaf.django_field_name == DATO_ID_FIELD_NAME else [leaf.django_field_name]
+        return fields
 
 
     def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]) -> list[str]:
