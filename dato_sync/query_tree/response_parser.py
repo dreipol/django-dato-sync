@@ -39,13 +39,14 @@ class ParserContext:
         sub_response = self.response.get(api_name)
         if not isinstance(sub_response, list):
             sub_response = [sub_response]
+        sub_response = [r for r in sub_response if r]
 
         localized_sub_responses = {key: value.get(api_name) for key, value in self.localization_responses.items() if value}
         localized_sub_responses = {key: value if isinstance(value, list) else [value]
                                    for key, value in localized_sub_responses.items()
                                    if value}
         per_object_localized_sub_responses = [dict(zip(localized_sub_responses, object_info))
-                                              for object_info in zip(*localized_sub_responses.values())]
+                                              for object_info in zip(*localized_sub_responses.values()) if object_info]
 
         subpath = api_name if not self.path else f"{self.path}.{api_name}"
 
@@ -156,6 +157,9 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
     def visit_intermediate_node(self, intermediate_node: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
         next_context = self._visit_contexts(user_info, intermediate_node.api_name)
+        if not next_context:
+            return []
+
         # Ensure we collect the entire context before creating objects as described above.
         collect_context_first = (
             lambda c: 1
@@ -169,18 +173,19 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
     def visit_leaf(self, leaf: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
         default_locale = settings.LANGUAGE_CODE
+        fields = []
 
         for context in user_info:
             value = context.response.get(leaf.api_name)
-            if leaf.api_name == "id":
+            if leaf.django_field_name == DATO_ID_FIELD_NAME:
                 obj = self.objects.get(value)
                 if obj is None:
                     obj = self.job.django_model()
                     self.objects[value] = obj
 
-                for key, value in context.context.items():
+                for key, context_value in context.context.items():
                     try:
-                        setattr(obj, key, value)
+                        setattr(obj, key, context_value)
                     except AttributeError as e:
                         if context.context.get(f"{key}_{default_locale}"):
                             pass # Allow localization without a base field
@@ -189,22 +194,29 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
                 context.active_object = obj
 
+            fields = []
             try:
                 self._set_value_or_context(context, leaf.django_field_name, value)
+                if leaf.django_field_name != DATO_ID_FIELD_NAME:
+                    fields = [leaf.django_field_name]
             except AttributeError as e:
                 if leaf.is_localized:
                     pass # Allow localization without a base field
                 else:
                     raise e
 
-            if leaf.is_localized and leaf.api_name != "id":
-                self._set_value_or_context(context, f"{leaf.django_field_name}_{default_locale}", value)
+            if leaf.is_localized and leaf.django_field_name != DATO_ID_FIELD_NAME:
+                field_name = f"{leaf.django_field_name}_{default_locale}"
+                self._set_value_or_context(context, field_name, value)
+                fields.append(field_name)
 
                 for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
                     localized_value = context.localization_responses[language].get(leaf.api_name)
-                    self._set_value_or_context(context, f"{leaf.django_field_name}_{language}", localized_value)
+                    field_name = f"{leaf.django_field_name}_{language}"
+                    self._set_value_or_context(context, field_name, localized_value)
+                    fields.append(field_name)
 
-        return [] if leaf.api_name == "id" else [leaf.django_field_name]
+        return fields
 
 
     def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]) -> list[str]:

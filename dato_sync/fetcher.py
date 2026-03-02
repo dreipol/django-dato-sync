@@ -1,7 +1,7 @@
 from typing import Type
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Max, Q
 
 from dato_sync.datocms_api import fetch_datocms_content
 from dato_sync.errors import IllegalSyncOptionsError
@@ -60,8 +60,7 @@ class Fetcher:
 
         for model, ids_set in seen_ids.items():
             (model.objects
-             .exclude(dato_identifier__in=ids_set)
-             .update(deleted=True))
+             .update(deleted=~Q(dato_identifier__in=ids_set)))
 
 fetcher = Fetcher()
 
