@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Type
 
 from django.conf import settings
@@ -23,16 +24,14 @@ class Fetcher:
         default_locale = settings.LANGUAGE_CODE
 
         seen_ids = dict()
+        min_date_map = dict() if force_full_sync else _create_min_date_map(self.jobs)
 
         for job in self.jobs:
             sanitized_mappings = [
                 mapping if isinstance(mapping, DatoFieldPath) else DatoFieldPath(mapping)
                 for mapping in job.field_mappings]
 
-            if force_full_sync:
-                min_date = None
-            else:
-                min_date = job.django_model.objects.aggregate(max_date=Max("modified"))["max_date"]
+            min_date = min_date_map.get(job.django_model)
 
             query_tree = QueryTree(
                 job=job,
@@ -71,3 +70,8 @@ def _run_sanity_checks(options: SyncOptions):
         field_name: str = mapping.django_field_name if isinstance(mapping, DatoFieldPath) else mapping
         if field_name in reserved_names:
             raise IllegalSyncOptionsError(options.django_model.__name__, options.__name__, f"{field_name} is reserved and should not be mapped manually. It will be populated automatically.")
+
+
+def _create_min_date_map(jobs: list[SyncOptions]) -> dict[DatoModel, datetime]:
+    models: set[DatoModel] = {job.django_model for job in jobs}
+    return {model: model.objects.aggregate(max_date=Max("modified"))["max_date"] for model in models}
