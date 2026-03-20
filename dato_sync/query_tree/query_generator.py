@@ -1,3 +1,4 @@
+from dato_sync.datocms_api import MAX_DATO_PAGE_SIZE
 from dato_sync.query_tree.constants import IDS_ALIAS
 from dato_sync.query_tree.query_tree import (
     QueryTreeVisitor,
@@ -23,8 +24,8 @@ class QueryGenerator(QueryTreeVisitor[None, str | None]):
         child_query = "\n".join([subquery for subquery in subqueries if subquery])
 
         return f"""
-           query {root.query_name}($locale: SiteLocale!) {{
-               {root.api_name}(locale: $locale{filter_expression}) {{
+           query {root.query_name}($locale: SiteLocale!, $skip: IntType) {{
+               {root.api_name}(locale: $locale{filter_expression}, first: {MAX_DATO_PAGE_SIZE}, skip: $skip) {{
                    {child_query}
                }}
                {"" if self.for_localization else f"""

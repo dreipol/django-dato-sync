@@ -43,19 +43,24 @@ class Fetcher:
 
             base_query = QueryGenerator(for_localization=False).generate_query(query_tree)
 
-            response = fetch_datocms_content(default_locale, base_query)
-            if any(mapping.is_localized for mapping in sanitized_mappings):
-                localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
-                localization_responses = {language: fetch_datocms_content(language, localization_query)
-                 for language, _ in settings.LANGUAGES
-                 if language != default_locale}
-            else:
-                localization_responses = dict()
+            last_page_full = True
+            current_page = 0
+            while last_page_full:
+                response = fetch_datocms_content(default_locale, base_query, page=current_page)
+                if any(mapping.is_localized for mapping in sanitized_mappings):
+                    localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
+                    localization_responses = {language: fetch_datocms_content(language, localization_query, page=current_page)
+                     for language, _ in settings.LANGUAGES
+                     if language != default_locale}
+                else:
+                    localization_responses = dict()
 
-            new_ids = ResponseParser(job).parse_response(response, localization_responses, query_tree)
-            ids_set: set[str] = seen_ids.get(job.django_model, set())
-            ids_set = ids_set.union(new_ids)
-            seen_ids[job.django_model] = ids_set
+                new_ids, last_page_full = ResponseParser(job).parse_response(response, localization_responses, query_tree)
+                ids_set: set[str] = seen_ids.get(job.django_model, set())
+                ids_set = ids_set.union(new_ids)
+                seen_ids[job.django_model] = ids_set
+
+                current_page += 1
 
         for model, ids_set in seen_ids.items():
             (model.objects

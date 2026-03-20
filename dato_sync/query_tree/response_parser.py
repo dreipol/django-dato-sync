@@ -3,6 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 
+from dato_sync.datocms_api import MAX_DATO_PAGE_SIZE
 from dato_sync.models import DatoModel
 from dato_sync.query_tree.constants import DATO_ID_FIELD_NAME, IDS_ALIAS
 from dato_sync.query_tree.query_tree import (
@@ -121,7 +122,7 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
         response: dict,
         localization_responses: dict[str, dict],
         query_tree: QueryTree,
-    ) -> list[str]:
+    ) -> tuple[list[str], bool]:
         self.objects = dict()
 
         context = ParserContext(
@@ -148,7 +149,9 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
                 fields=special_fields,
             )
 
-        return [obj.dato_identifier for obj in ids_visitor.objects.values()]
+        all_ids = [obj.dato_identifier for obj in ids_visitor.objects.values()]
+        page_full = len(response[IDS_ALIAS]) == MAX_DATO_PAGE_SIZE
+        return all_ids, page_full
 
 
 
