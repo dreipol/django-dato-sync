@@ -43,15 +43,19 @@ class Fetcher:
 
             base_query = QueryGenerator(for_localization=False).generate_query(query_tree)
 
+            has_localized_fields = any(mapping.is_localized for mapping in sanitized_mappings)
+            localization_query = QueryGenerator(for_localization=True).generate_query(query_tree) if has_localized_fields else None
+
             last_page_full = True
             current_page = 0
             while last_page_full:
                 response = fetch_datocms_content(default_locale, base_query, page=current_page)
-                if any(mapping.is_localized for mapping in sanitized_mappings):
-                    localization_query = QueryGenerator(for_localization=True).generate_query(query_tree)
-                    localization_responses = {language: fetch_datocms_content(language, localization_query, page=current_page)
-                     for language, _ in settings.LANGUAGES
-                     if language != default_locale}
+                if has_localized_fields and localization_query is not None:
+                    localization_responses = {
+                        language: fetch_datocms_content(language, localization_query, page=current_page)
+                        for language, _ in settings.LANGUAGES
+                        if language != default_locale
+                    }
                 else:
                     localization_responses = dict()
 
