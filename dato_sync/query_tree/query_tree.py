@@ -2,6 +2,7 @@ import datetime
 from abc import ABC, abstractmethod
 from typing import TypeVar, Generic
 
+from dato_sync.datocms_api import MAX_DATO_PAGE_SIZE
 from dato_sync.errors import IllegalSyncOptionsError
 from dato_sync.query_tree.constants import DATO_ID_FIELD_NAME
 from dato_sync.sync_options import SyncOptions, DatoFieldPath
@@ -117,7 +118,7 @@ class QueryTree(QueryTreeNode):
         for mapping in _meta_mappings(base_name):
             self.insert_mapping(mapping, job)
 
-        ids_path_components = [self.api_name, self.relative_path, "id"]
+        ids_path_components = [f"{self.api_name}(first: {MAX_DATO_PAGE_SIZE}, skip: $skip)", self.relative_path, "id"]
         self.ids_tree = QueryTreeNode(
             path=".".join([component for component in ids_path_components if component]),
             job=job,

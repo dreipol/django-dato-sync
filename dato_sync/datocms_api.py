@@ -2,6 +2,8 @@ from django.conf import settings
 import requests
 from requests.auth import AuthBase
 
+MAX_DATO_PAGE_SIZE = 500
+
 
 class DatoException(Exception):
     pass
@@ -23,11 +25,11 @@ class DatoTokenAuth(AuthBase):
         return request
 
 
-def fetch_datocms_content(language: str, query: str) -> dict:
+def fetch_datocms_content(language: str, query: str, page: int) -> dict:
     api_token = settings.DATOCMS_API_TOKEN
     api_url = f"{settings.DATOCMS_API_URL}/"
     environment = settings.DATOCMS_ENVIRONMENT
-    variables = {"locale": language}
+    variables = {"locale": language, "skip": page * MAX_DATO_PAGE_SIZE}
     response = requests.post(
         api_url, auth=DatoTokenAuth(api_token, environment), json={"query": query, "variables": variables}
     )
