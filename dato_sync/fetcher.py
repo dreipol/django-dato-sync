@@ -72,6 +72,6 @@ def _run_sanity_checks(options: SyncOptions):
             raise IllegalSyncOptionsError(options.django_model.__name__, options.__name__, f"{field_name} is reserved and should not be mapped manually. It will be populated automatically.")
 
 
-def _create_min_date_map(jobs: list[SyncOptions]) -> dict[DatoModel, datetime]:
+def _create_min_date_map(jobs: list[SyncOptions]) -> dict[DatoModel, datetime | None]:
     models: set[DatoModel] = {job.django_model for job in jobs}
     return {model: model.objects.aggregate(max_date=Max("modified"))["max_date"] for model in models}
