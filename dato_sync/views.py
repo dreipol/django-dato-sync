@@ -20,7 +20,7 @@ def sync(request: WSGIRequest) -> HttpResponse:
     if request.headers.get("Authorization") != settings.DATO_SYNC_WEBHOOK_EXPECTED_AUTH:
         return HttpResponse("Unauthorized", status=401)
 
-    sleep(seconds=1) # It takes a little bit for Dato to return the new values via the API
+    sleep(1) # It takes a little bit for Dato to return the new values via the API
     # TODO: use data from body
     fetcher.fetch(force_full_sync=False)
     return HttpResponse(status=204)
