@@ -13,7 +13,7 @@ from dato_sync.query_tree.query_tree import (
     QueryTreeNode,
     QueryTree,
 )
-from dato_sync.sync_options import SyncOptions
+from dato_sync.sync_options import SyncOptions, DatoFieldPath
 from dato_sync.util import to_camel_case, all_dato_objects_name
 
 
@@ -110,7 +110,7 @@ class ParserContext:
         return self.model_path.startswith(subpath)
 
 
-class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
+class ResponseParser(QueryTreeVisitor[list[ParserContext], None]):
     def __init__(self, job: SyncOptions):
         self.job = job
         self.objects: dict[str, DatoModel] = dict()
@@ -130,7 +130,15 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
             localization_responses=localization_responses,
             model_path=self.model_path,
         )
-        fields = query_tree.visit(self, [context])
+        fields = [
+            field
+            for mapping in self.job.field_mappings
+            for field in self._get_localized_field_names(mapping)
+            if field in [f.attname for f in self.job.django_model._meta.fields]
+            and field != DATO_ID_FIELD_NAME
+            and not self._is_special_field(mapping)
+        ]
+        query_tree.visit(self, [context])
         self.job.django_model.objects.bulk_create(
             self.objects.values(),
             update_conflicts=True,
@@ -140,9 +148,17 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
         ids_visitor = ResponseParser(self.job)
         special_fields_context = self._visit_contexts([context], IDS_ALIAS)
-        special_fields = [field
-         for child in query_tree.ids_tree.children
-         for field in child.visit(ids_visitor, special_fields_context)]
+        for child in query_tree.ids_tree.children:
+            child.visit(ids_visitor, special_fields_context)
+
+        special_fields = [
+            field
+            for mapping in self.job.field_mappings
+            for field in self._get_localized_field_names(mapping)
+            if field in [f.attname for f in self.job.django_model._meta.fields]
+               and field != DATO_ID_FIELD_NAME
+               and self._is_special_field(mapping)
+        ]
         if special_fields:
             self.job.django_model.objects.bulk_update(
                 ids_visitor.objects.values(),
@@ -153,12 +169,20 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
         page_full = len(response[IDS_ALIAS]) == MAX_DATO_PAGE_SIZE
         return all_ids, page_full
 
+    @staticmethod
+    def _is_special_field(mapping: str | DatoFieldPath) -> bool:
+        return "#" in mapping.path if isinstance(mapping, DatoFieldPath) else False
 
+    @staticmethod
+    def _get_localized_field_names(mapping: str | DatoFieldPath) -> list[str] | list[Any]:
+        mapping = mapping if isinstance(mapping, DatoFieldPath) else DatoFieldPath(mapping)
+        return (
+            [mapping.django_field_name] + [f"{mapping.django_field_name}_{language}" for language, _ in settings.LANGUAGES] if mapping.is_localized else [mapping.django_field_name])
 
-    def visit_root(self, root: QueryTree, user_info: list[ParserContext]) -> list[str]:
-        return self.visit_intermediate_node(root, user_info)
+    def visit_root(self, root: QueryTree, user_info: list[ParserContext]):
+        self.visit_intermediate_node(root, user_info)
 
-    def visit_intermediate_node(self, intermediate_node: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
+    def visit_intermediate_node(self, intermediate_node: QueryTreeNode, user_info: list[ParserContext]):
         next_context = self._visit_contexts(user_info, intermediate_node.api_name)
         if not next_context:
             return []
@@ -170,14 +194,11 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
             else 0
         )
 
-        return [field
-                for child in sorted(intermediate_node.children, key=collect_context_first)
-                for field in child.visit(self, next_context)]
+        for child in sorted(intermediate_node.children, key=collect_context_first):
+                child.visit(self, next_context)
 
-    def visit_leaf(self, leaf: QueryTreeNode, user_info: list[ParserContext]) -> list[str]:
+    def visit_leaf(self, leaf: QueryTreeNode, user_info: list[ParserContext]):
         default_locale = settings.LANGUAGE_CODE
-        fields = []
-
         for context in user_info:
             value = context.response.get(leaf.api_name)
             if leaf.django_field_name == DATO_ID_FIELD_NAME:
@@ -197,11 +218,8 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
 
                 context.active_object = obj
 
-            fields = []
             try:
                 self._set_value_or_context(context, leaf.django_field_name, value)
-                if leaf.django_field_name != DATO_ID_FIELD_NAME:
-                    fields = [leaf.django_field_name]
             except AttributeError as e:
                 if leaf.is_localized:
                     pass # Allow localization without a base field
@@ -211,28 +229,19 @@ class ResponseParser(QueryTreeVisitor[list[ParserContext], list[str]]):
             if leaf.is_localized and leaf.django_field_name != DATO_ID_FIELD_NAME:
                 field_name = f"{leaf.django_field_name}_{default_locale}"
                 self._set_value_or_context(context, field_name, value)
-                fields.append(field_name)
 
                 for language in (language for language, _ in settings.LANGUAGES if language != default_locale):
                     localized_value = context.localization_responses[language].get(leaf.api_name)
                     field_name = f"{leaf.django_field_name}_{language}"
                     self._set_value_or_context(context, field_name, localized_value)
-                    fields.append(field_name)
 
-        return fields
-
-
-    def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]) -> list[str]:
+    def visit_position_in_parent(self, leaf: PositionInParent, user_info: list[ParserContext]):
         for context in user_info:
             setattr(context.active_object, leaf.django_field_name, context.position_in_parent)
 
-        return [leaf.django_field_name]
-
-    def visit_flattened_position(self, leaf: FlattenedPosition, user_info: list[ParserContext]) -> list[str]:
+    def visit_flattened_position(self, leaf: FlattenedPosition, user_info: list[ParserContext]):
         for position, context in enumerate(user_info):
             setattr(context.active_object, leaf.django_field_name, position)
-
-        return [leaf.django_field_name]
 
     @staticmethod
     def _visit_contexts(contexts: list[ParserContext], api_name: str) -> list[ParserContext]:
